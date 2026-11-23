@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#080e16">
+  <title>ZHUJIAXUAN — Personal Portfolio</title>
+  <style>html,body{margin:0;background:#080e16;color:#eee9df}iframe{display:block;width:100%;height:100dvh;border:0;background:#080e16}</style>
+  <link rel="preload" as="image" href="assets/cinema/overview.jpg" fetchpriority="high">
+  <link rel="stylesheet" href="opening.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono&amp;family=DM+Sans:wght@300;400&amp;display=swap" media="print" onload="this.media='all'">
+</head>
+<body data-opening="waiting">
+  <iframe id="city" allowfullscreen inert src="city-prototype/index.html?opening=1" title="INNER CITY interactive 3D city"></iframe>
+  <section class="opening" aria-labelledby="opening-title">
+    <div class="opening-veil" aria-hidden="true"></div>
+    <div class="opening-title">
+      <h1 id="opening-title">INNER CITY</h1>
+      <p>A TOUR THROUGH MY INNER WORLD</p>
+    </div>
+    <div class="opening-actions">
+      <p class="opening-status" role="status"></p>
+      <button type="button" id="opening-enter" hidden>ENTER THE CITY ↗</button>
+      <button type="button" id="opening-retry" hidden>RETRY ↻</button>
+      <noscript>Enable JavaScript to enter INNER CITY.</noscript>
+    </div>
+  </section>
+  <script type="module" src="opening.js"></script>
+</body>
+</html>
