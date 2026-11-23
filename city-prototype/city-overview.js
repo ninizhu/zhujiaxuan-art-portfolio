@@ -3,7 +3,7 @@ const shots = {
   overview: { focus: [.55, .55], near: 'street', far: 'ridge' },
   mountains: {
     focus: [.65, .47], near: 'stairs', far: 'forest',
-    poster: ['IMG_3046.jpg', 'STONE IS THE ROOT OF CLOUD', [.508, .328, .788, .583]]
+    poster: ['stone-is-the-root-of-cloud-v3-cover.png', 'STONE IS THE ROOT OF CLOUD', [.508, .328, .788, .583]]
   },
   bus: {
     file: 'bus-wide', posterRatio: '3120 / 1454', focus: [.60, .50], near: 'curb', far: 'traffic',
@@ -141,9 +141,48 @@ export function createCityOverview(stage, openArtwork) {
     atmosphere.append(layer);
   }
   root.append(atmosphere);
-  let overviewRect;
+  let overviewRect, overviewPoseTransform;
   let viewportWidth, viewportHeight;
   let visibleKey, visibleInteractive;
+  let exploration;
+  let explorationWeight = 0;
+
+  function pan(dx, dy) {
+    if (!visibleInteractive || !sets.has(visibleKey)) return false;
+    if (exploration?.key !== visibleKey) exploration = { key: visibleKey, x: 0, y: 0 };
+    const { rect, pose } = sets.get(visibleKey);
+    const width = rect.w * pose.scale;
+    const height = rect.h * pose.scale;
+    const left = rect.x + pose.x;
+    const top = rect.y + pose.y;
+    // Traverse the cropped plate faster in portrait, while keeping the
+    // original framing and ensuring the plate always covers the viewport.
+    const horizontalGain = Math.min(1.65, Math.sqrt(width / viewportWidth));
+    exploration.x = Math.max(viewportWidth - width - left,
+      Math.min(-left, exploration.x + dx * horizontalGain));
+    // Use a little extra travel to create room on a tightly fitted axis.
+    const verticalRoom = viewportHeight * .075;
+    exploration.y = Math.max(viewportHeight - height - top - verticalRoom,
+      Math.min(-top + verticalRoom, exploration.y + dy * .65));
+    return true;
+  }
+
+  function drawExploration() {
+    if (!visibleInteractive || !sets.has(visibleKey)) return;
+    explorationWeight = exploration ? 1 : 0;
+    if (visibleKey === 'overview') {
+      position('overview', 1, 0, 0, { x: 0, y: 0, amount: 0 });
+      placeLabels(true);
+    } else {
+      detailPose(visibleKey, routes[visibleKey], 1);
+    }
+  }
+
+  function resetExploration() {
+    if (!exploration) return;
+    exploration = undefined;
+    drawExploration();
+  }
   function fit() {
     const width = viewportWidth = stage.clientWidth;
     const height = viewportHeight = stage.clientHeight;
@@ -163,7 +202,8 @@ export function createCityOverview(stage, openArtwork) {
       if (key === 'overview') overviewRect = { x, y, w, h };
     }
     const overview = sets.get('overview');
-    placeLabels(visibleKey === 'overview' && !overview.layer.inert);
+    if (visibleInteractive && document.documentElement.classList.contains('mobile-explore')) drawExploration();
+    else placeLabels(visibleKey === 'overview' && !overview.layer.inert);
   }
 
   function show(key, interactive = true) {
@@ -185,7 +225,27 @@ export function createCityOverview(stage, openArtwork) {
   }
 
   function position(key, scale, x, y, depth) {
-    const { frame, near, far } = sets.get(key);
+    const set = sets.get(key);
+    const { frame, near, far, rect } = set;
+    set.pose = { x, y, scale };
+    if (exploration?.key === key && explorationWeight > 0) {
+      const { x: left, y: top, w, h } = rect;
+      const dx = exploration.x * explorationWeight;
+      const dy = exploration.y * explorationWeight;
+      // Create a small amount of vertical room around the viewport center.
+      const zoom = Math.min(.1, Math.abs(dy) * 2 / viewportHeight);
+      const plateLeft = left + x;
+      const width = w * scale;
+      const panX = Math.max(viewportWidth - width - plateLeft, Math.min(-plateLeft, dx));
+      const crop = Math.max(0, width - viewportWidth);
+      const zoomAnchor = crop ? clamp(-(plateLeft + panX) / crop) * w : w / 2;
+      x += panX - zoomAnchor * zoom;
+      y += dy - (viewportHeight / 2 - top) * zoom;
+      scale += zoom;
+      x = Math.max(viewportWidth - left - w * scale, Math.min(-left, x));
+      y = Math.max(viewportHeight - top - h * scale, Math.min(-top, y));
+    }
+    if (key === 'overview') overviewPoseTransform = { x, y, scale };
     frame.style.transform = `translate3d(${x}px,${y}px,0) scale(${scale})`;
     near.style.transform = `translate3d(${depth.x}px,${depth.y}px,0) scale(${1 + depth.amount * .15})`;
     far.style.transform = `translate3d(${-depth.x * .32}px,${-depth.y * .4}px,0) scale(${1 + depth.amount * .035})`;
@@ -225,7 +285,8 @@ export function createCityOverview(stage, openArtwork) {
     position(key, scale, tx, ty, { ...shift, amount: parallax });
   }
 
-  function play(key, progress) {
+  function play(key, progress, weight) {
+    explorationWeight = weight;
     const route = routes[key];
     const travel = smooth(progress);
     if (progress < cut) {
@@ -250,6 +311,8 @@ export function createCityOverview(stage, openArtwork) {
   }
 
   function settle(key) {
+    exploration = undefined;
+    explorationWeight = 0;
     atmosphere.hidden = true;
     if (routes[key]) detailPose(key, routes[key], 1);
     if (key === 'overview') position(key, 1, 0, 0, { x: 0, y: 0, amount: 0 });
@@ -259,10 +322,14 @@ export function createCityOverview(stage, openArtwork) {
 
   function placeLabels(active) {
     if (!overviewRect) return;
+    const { x, y, w, h } = overviewRect;
+    const { x: tx, y: ty, scale } = exploration?.key === 'overview' && explorationWeight
+      ? overviewPoseTransform
+      : { x: 0, y: 0, scale: 1 };
     for (const [key, [u, v]] of Object.entries(locations)) {
       const element = document.querySelector(`#label-${key}`);
-      const { x, y, w, h } = overviewRect;
-      const left = x + u * w, top = y + v * h;
+      const left = x + tx + u * w * scale;
+      const top = y + ty + v * h * scale;
       element.hidden = !active || left < 48 || left > innerWidth - 48 || top < 85 || top > innerHeight - 20;
       element.style.left = `${left}px`;
       element.style.top = `${top}px`;
@@ -270,5 +337,5 @@ export function createCityOverview(stage, openArtwork) {
   }
 
   fit();
-  return { fit, settle, play, placeLabels, duration: key => routes[key]?.duration, has: key => sets.has(key) };
+  return { fit, settle, play, placeLabels, pan, drawExploration, resetExploration, duration: key => routes[key]?.duration, has: key => sets.has(key) };
 }

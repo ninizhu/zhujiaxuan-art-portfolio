@@ -151,3 +151,8 @@ body > header, main > .world-label, main > .legend{transition:opacity .55s ease}
 @media(max-width:700px){
   .copy{top:clamp(82px,15vh,145px)}
 }
+
+.mobile-explore #stage,
+.mobile-explore .world-label {
+  touch-action: none;
+}

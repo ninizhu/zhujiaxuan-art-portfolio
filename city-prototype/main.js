@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createCityOverview } from './city-overview.js';
+import { enableMobileExplore } from './mobile-explore.js';
 const stage=document.querySelector('#stage'), scene=new THREE.Scene();scene.background=new THREE.Color('#26363a');scene.fog=new THREE.FogExp2('#4d5d60',.0105);
 const camera=new THREE.PerspectiveCamera(38,innerWidth/innerHeight,.1,300);camera.position.set(29,27,38);
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;stage.append(renderer.domElement);
@@ -121,7 +122,7 @@ add(new THREE.BoxGeometry(8.34,4.72,.22),screenReveal,[0,3.48,-.2],mountainScree
 for(const x of [-4.2,4.2])add(new THREE.BoxGeometry(.18,4.9,.38),screenStone,[x,3.5,-.16],mountainScreen);
 add(new THREE.BoxGeometry(8.65,.22,.68),screenStone,[0,5.94,-.16],mountainScreen);
 add(new THREE.BoxGeometry(8.62,.16,.5),mats.trim,[0,1.04,-.13],mountainScreen,false);
-const mountainScreenSurface=artworkPanel(mountainScreen,{path:'../assets/covers/IMG_3046.jpg',width:7.92,height:4.455,position:[0,3.52,-.085],frame:mats.trim,key:'mountains'});
+const mountainScreenSurface=artworkPanel(mountainScreen,{path:'../assets/covers/stone-is-the-root-of-cloud-v3-cover.png',width:7.92,height:4.455,position:[0,3.52,-.085],frame:mats.trim,key:'mountains'});
 mountainScreenSurface.scale.x = (1909 / 1079) / (7.92 / 4.455);
 // A shallow stage and gently bowed rock terraces follow the hillside contour.
 add(new THREE.BoxGeometry(9.05,.22,1.15),terraceStone,[0,-.23,1.02],mountainScreen);
@@ -312,6 +313,7 @@ banquetRoom.visible = apartmentRoom.visible = archiveRoom.visible = false;
 markM.visible = markB.visible = false;
 const mountainCameraTarget=new THREE.Vector3(-18.35,7.32,-11.27),mountainCameraPosition=mountainCameraTarget.clone().add(new THREE.Vector3(-.58,.24,.78).normalize().multiplyScalar(13.6));const focus={overview,mountains:{position:mountainCameraPosition,target:mountainCameraTarget,fov:43},bus:{position:new THREE.Vector3(29.2,4.65,11.8),target:new THREE.Vector3(23.55,2.55,3.15),fov:42},banquet:{position:new THREE.Vector3(-1.8,4.4,23),target:new THREE.Vector3(-2,2.55,11.8),fov:40},apartment:{position:new THREE.Vector3(8.6,4.2,12),target:new THREE.Vector3(6.05,2.3,.8),fov:41},archive:{position:new THREE.Vector3(15.8,3.7,20.7),target:new THREE.Vector3(16,2.3,10.8),fov:43}};let anim=null,current='overview',openOnArrival=false;
 let controlsTarget=focus.overview.target.clone();camera.position.copy(overview.position);camera.fov=overview.fov;camera.updateProjectionMatrix();camera.up.set(0,1,0);camera.lookAt(controlsTarget);camera.updateMatrixWorld(true);
+enableMobileExplore(cinema, () => !anim && cinema.has(current));
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function go(key) {
   const destination = focus[key];
@@ -337,11 +339,12 @@ function go(key) {
   const duration = reducedMotion.matches ? 1 : route ? Math.max(1, cinema.duration(route) * Math.abs(to - from)) : 1450;
   anim = {
     key, start: performance.now(), duration, route, from, to, progress: from, announced: false,
+    explorationStart: interrupted?.explorationWeight ?? 1, explorationWeight: interrupted?.explorationWeight ?? 1,
     fromP: camera.position.clone(), fromT: controlsTarget.clone(), fromFov: camera.fov,
     destination
   };
   cinema.placeLabels(false);
-  if (route) cinema.play(route, from);
+  if (route) cinema.play(route, from, anim.explorationWeight);
   else {
     if (interior && !cinema.has(key)) renderLegacyScene();
     cinema.settle(key);
@@ -364,7 +367,24 @@ for (const label of document.querySelectorAll('.world-label')) {
 // Artwork surfaces are real Three.js hit targets. They route through the
 // existing location selection and ENTER THE WORK controls, preserving the one
 // established player and Archive gallery.
-const ray=new THREE.Raycaster(),mouse=new THREE.Vector2();renderer.domElement.addEventListener('pointerdown',e=>{const r=renderer.domElement.getBoundingClientRect();mouse.set((e.clientX-r.left)/r.width*2-1,-((e.clientY-r.top)/r.height)*2+1);ray.setFromCamera(mouse,camera);const activeArtwork=artworkHitTargets.filter(surface=>surface.userData.workKey===current),hits=ray.intersectObjects(activeArtwork,true);if(!hits.length||anim)return;const hit=hits[0].object,key=hit.userData.workKey;if(key){document.querySelector('[data-location="'+key+'"]')?.click();document.querySelector('.entry .enter')?.click()}});
+const ray = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown', event => {
+  const exploring = document.documentElement.classList.contains('mobile-explore');
+  if (event.pointerType === 'touch' && exploring && cinema.has(current)) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.set(
+    (event.clientX - rect.left) / rect.width * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  ray.setFromCamera(mouse, camera);
+  const activeArtwork = artworkHitTargets.filter(surface => surface.userData.workKey === current);
+  const [hit] = ray.intersectObjects(activeArtwork, true);
+  const key = hit?.object.userData.workKey;
+  if (anim || !key) return;
+  document.querySelector(`[data-location="${key}"]`)?.click();
+  document.querySelector('.entry .enter')?.click();
+});
 function render(now) {
   requestAnimationFrame(render);
   if (anim) {
@@ -373,7 +393,8 @@ function render(now) {
     const { route, from, to, destination } = anim;
     if (route) {
       anim.progress = THREE.MathUtils.lerp(from, to, t);
-      cinema.play(route, anim.progress);
+      anim.explorationWeight = Math.max(0, anim.explorationStart - t * 5);
+      cinema.play(route, anim.progress, anim.explorationWeight);
       if (anim.key !== 'overview' && anim.progress > .89) {
         if (!anim.announced) {
           anim.announced = true;
